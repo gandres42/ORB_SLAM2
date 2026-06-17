@@ -473,6 +473,59 @@ void System::SaveTrajectoryKITTI(const string &filename)
     cout << endl << "trajectory saved!" << endl;
 }
 
+std::vector<std::pair<double, cv::Mat>> System::GetTrajectoryPoints()
+{
+    // In-memory version of SaveTrajectoryTUM: rebuild the complete per-frame
+    // camera trajectory from the tracker's stored relative frame poses. This is
+    // what lets callers (e.g. the Python bindings) recover the intermediate,
+    // non-keyframe poses. Works for all sensors, monocular included.
+    std::vector<std::pair<double, cv::Mat>> trajectory;
+
+    vector<KeyFrame*> vpKFs = mpMap->GetAllKeyFrames();
+    if(vpKFs.empty())
+        return trajectory;
+    sort(vpKFs.begin(),vpKFs.end(),KeyFrame::lId);
+
+    // Transform all keyframes so that the first keyframe is at the origin.
+    // After a loop closure the first keyframe might not be at the origin.
+    cv::Mat Two = vpKFs[0]->GetPoseInverse();
+
+    // Frame pose is stored relative to its reference keyframe (which is optimized
+    // by BA and pose graph). We get the keyframe pose first and then concatenate
+    // the relative transformation. Frames not localized (tracking failure) are
+    // skipped. For each frame we have a reference keyframe (lRit), the timestamp
+    // (lT) and a flag which is true when tracking failed (lbL).
+    list<ORB_SLAM2::KeyFrame*>::iterator lRit = mpTracker->mlpReferences.begin();
+    list<double>::iterator lT = mpTracker->mlFrameTimes.begin();
+    list<bool>::iterator lbL = mpTracker->mlbLost.begin();
+    for(list<cv::Mat>::iterator lit=mpTracker->mlRelativeFramePoses.begin(),
+        lend=mpTracker->mlRelativeFramePoses.end();lit!=lend;lit++, lRit++, lT++, lbL++)
+    {
+        if(*lbL)
+            continue;
+
+        KeyFrame* pKF = *lRit;
+
+        cv::Mat Trw = cv::Mat::eye(4,4,CV_32F);
+
+        // If the reference keyframe was culled, traverse the spanning tree to get
+        // a suitable keyframe.
+        while(pKF->isBad())
+        {
+            Trw = Trw*pKF->mTcp;
+            pKF = pKF->GetParent();
+        }
+
+        Trw = Trw*pKF->GetPose()*Two;
+
+        cv::Mat Tcw = (*lit)*Trw;
+
+        trajectory.push_back(std::make_pair(*lT, Tcw));
+    }
+
+    return trajectory;
+}
+
 int System::GetTrackingState()
 {
     unique_lock<mutex> lock(mMutexState);

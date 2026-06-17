@@ -24,6 +24,8 @@
 
 #include<string>
 #include<thread>
+#include<vector>
+#include<utility>
 #include<opencv2/core/core.hpp>
 
 #include "Tracking.h"
@@ -114,6 +116,14 @@ public:
     // Call first Shutdown()
     // See format details at: http://www.cvlibs.net/datasets/kitti/eval_odometry.php
     void SaveTrajectoryKITTI(const string &filename);
+
+    // Get the full per-frame camera trajectory as (timestamp, Tcw) pairs, where
+    // Tcw is the 4x4 world-to-camera transform for each tracked frame. Unlike the
+    // Save* methods above this returns the trajectory in memory rather than to a
+    // file, and works for all sensors (including monocular). It is reconstructed
+    // from the tracker's stored relative frame poses, so it includes the
+    // intermediate (non-keyframe) poses; frames lost during tracking are skipped.
+    std::vector<std::pair<double, cv::Mat>> GetTrajectoryPoints();
 
     // Information from most recent processed frame
     // You can call this right after TrackMonocular (or stereo or RGBD)
